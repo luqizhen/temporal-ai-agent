@@ -176,6 +176,9 @@ All configuration is via environment variables (see `.env.example`):
 - [Adding New Tools](docs/adding-tools.md)
 - [Workflow Design](docs/workflows.md)
 - [API Reference](docs/api-reference.md)
+- [Test Plan (TDD)](docs/test-plan.md)
+- [Implementation Plan (Phases 0-12)](docs/implementation-plan.md)
+- [Deployment Guide](docs/deployment.md)
 
 ## License
 

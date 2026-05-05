@@ -15,11 +15,14 @@ This document defines the phased implementation plan for the Temporal Agent proj
 7. [Phase 5 — Temporal Workflows](#phase-5--temporal-workflows)
 8. [Phase 6 — Temporal Worker](#phase-6--temporal-worker)
 9. [Phase 7 — API Server](#phase-7--api-server)
-10. [Phase 8 — Docker Compose & Scripts](#phase-8--docker-compose--scripts)
+10. [Phase 8 — Local Docker Compose](#phase-8--local-docker-compose)
 11. [Phase 9 — E2E Testing & Polish](#phase-9--e2e-testing--polish)
-12. [Dependency Graph](#dependency-graph)
-13. [Quality Gates Per Phase](#quality-gates-per-phase)
-14. [Branching Strategy](#branching-strategy)
+12. [Phase 10 — Staging Docker Compose](#phase-10--staging-docker-compose)
+13. [Phase 11 — Kubernetes & Helm Charts](#phase-11--kubernetes--helm-charts)
+14. [Phase 12 — Monitoring & Observability](#phase-12--monitoring--observability)
+15. [Dependency Graph](#dependency-graph)
+16. [Quality Gates Per Phase](#quality-gates-per-phase)
+17. [Branching Strategy](#branching-strategy)
 
 ---
 
@@ -42,12 +45,21 @@ Phase 6: Temporal Worker ──────────────────�
     │
 Phase 7: API Server ──────────────────────────── (HTTP interface)
     │
-Phase 8: Docker Compose & Scripts ────────────── (infra + dev scripts)
+Phase 8: Local Docker Compose ────────────────── (dev environment)
     │
 Phase 9: E2E Testing & Polish ────────────────── (full-stack validation)
+    │
+    ├── Phase 10: Staging Docker Compose ──────── (production-like single VM)
+    │
+    ├── Phase 11: Kubernetes & Helm ───────────── (production k8s deployment)
+    │        │
+    │        └── Phase 12: Monitoring & Observability ── (metrics, logging, alerting)
 ```
 
-**Estimated effort**: ~10 phases, each independently testable and mergeable.
+**Phases 0-9**: Core application development (local dev focused)
+**Phases 10-12**: Deployment & operations (staging → production)
+
+**Estimated effort**: ~13 phases, each independently testable and mergeable.
 
 ---
 
@@ -444,11 +456,11 @@ package.json
 
 ---
 
-## Phase 8 — Docker Compose & Scripts
+## Phase 8 — Local Docker Compose
 
 **Goal**: Set up Docker Compose for local development and create helper scripts.
 
-**Branch**: `feature/phase8-docker-scripts`
+**Branch**: `feature/phase8-local-docker`
 
 ### Dependencies
 
@@ -459,13 +471,62 @@ package.json
 
 | # | Task | TDD? | Files |
 |---|---|---|---|
-| 8.1 | Create `docker-compose.yml` (PostgreSQL, Temporal, Web UI) | N/A | `docker-compose.yml` |
-| 8.2 | Create `Dockerfile` for app-api and app-worker | N/A | `Dockerfile` |
+| 8.1 | Create `docker-compose.yml` (PostgreSQL, Temporal server, Temporal Web UI) | N/A | `docker-compose.yml` |
+| 8.2 | Create `Dockerfile` (multi-stage: build + production images) | N/A | `Dockerfile` |
 | 8.3 | Create `.dockerignore` | N/A | `.dockerignore` |
-| 8.4 | Create `scripts/setup.sh` | N/A | `scripts/setup.sh` |
-| 8.5 | Create `scripts/start-dev.sh` | N/A | `scripts/start-dev.sh` |
+| 8.4 | Create `scripts/setup.sh` (first-time setup) | N/A | `scripts/setup.sh` |
+| 8.5 | Create `scripts/start-dev.sh` (Temporal + worker + API) | N/A | `scripts/start-dev.sh` |
 | 8.6 | Verify full stack starts with `docker compose up` | N/A | — |
 | 8.7 | Verify `scripts/start-dev.sh` works | N/A | — |
+
+### Infrastructure Components
+
+| Service | Image | Port | Purpose |
+|---|---|---|---|
+| `postgresql` | `postgres:15-alpine` | 5432 | Temporal persistence |
+| `temporal` | `temporalio/auto-setup:latest` | 7233 | Temporal server |
+| `temporal-admin-tools` | `temporalio/admin-tools:latest` | — | CLI for debugging |
+| `temporal-ui` | `temporalio/ui:latest` | 8080 | Web UI |
+
+### docker-compose.yml Structure
+
+```yaml
+services:
+  postgresql:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_DB: temporal
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+
+  temporal:
+    image: temporalio/auto-setup:latest
+    depends_on: [postgresql]
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=postgresql
+    ports: ["7233:7233"]
+
+  temporal-ui:
+    image: temporalio/ui:latest
+    depends_on: [temporal]
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+    ports: ["8080:8080"]
+
+  temporal-admin-tools:
+    image: temporalio/admin-tools:latest
+    depends_on: [temporal]
+    environment:
+      - TEMPORAL_CLI_ADDRESS=temporal:7233
+
+volumes:
+  pgdata:
+```
 
 ### Quality Gate
 
@@ -515,6 +576,465 @@ package.json
 
 ---
 
+## Phase 10 — Staging Docker Compose
+
+**Goal**: Create a production-like Docker Compose setup for staging on a single VM with TLS, proper persistence, secrets management, and health checks.
+
+**Branch**: `feature/phase10-staging-docker`
+
+### Dependencies
+
+- Phase 9 (E2E validated)
+
+### Tasks
+
+| # | Task | TDD? | Files |
+|---|---|---|---|
+| 10.1 | Create `docker-compose.staging.yml` (extends local compose) | N/A | `docker-compose.staging.yml` |
+| 10.2 | Add Elasticsearch service for Temporal advanced visibility | N/A | `docker-compose.staging.yml` |
+| 10.3 | Add TLS termination with Caddy/Nginx reverse proxy | N/A | `reverse-proxy/`, `Caddyfile` or `nginx.conf` |
+| 10.4 | Add health checks to all services | N/A | `docker-compose.staging.yml` |
+| 10.5 | Add resource limits (memory, CPU) per service | N/A | `docker-compose.staging.yml` |
+| 10.6 | Add Docker secrets or `.env.staging` for production secrets | N/A | `.env.staging.example` |
+| 10.7 | Add log aggregation config (JSON structured logs) | N/A | Logging config |
+| 10.8 | Add persistent volumes with backup strategy | N/A | Volume config |
+| 10.9 | Add Temporal namespace setup (`default` + `staging`) | N/A | `scripts/setup-staging.sh` |
+| 10.10 | Create `scripts/deploy-staging.sh` deployment script | N/A | `scripts/deploy-staging.sh` |
+| 10.11 | Verify full staging stack starts and passes E2E tests | N/A | — |
+| 10.12 | Create staging documentation | N/A | `docs/deployment.md` |
+
+### Infrastructure Architecture
+
+```
+                    Internet
+                       │
+                       ▼
+              ┌─────────────────┐
+              │  Caddy/Nginx    │  TLS termination
+              │  (reverse proxy)│  Port 443 → internal
+              └────────┬────────┘
+                       │
+              ┌────────┴────────┐
+              │                 │
+    ┌─────────▼──────┐ ┌───────▼──────────┐
+    │  app-api       │ │  Temporal UI     │
+    │  (Fastify)     │ │  (Web UI)        │
+    │  Port 3000     │ │  Port 8080       │
+    └────────────────┘ └──────────────────┘
+              │
+    ┌─────────▼──────────────────────────────┐
+    │  app-worker (replicas: 2)               │
+    │  (Temporal Worker)                      │
+    └─────────────────────────────────────────┘
+              │
+    ┌─────────▼──────────────────────────────┐
+    │  Temporal Server                        │
+    │  Port 7233                              │
+    │  Persistence: PostgreSQL                │
+    │  Visibility: Elasticsearch              │
+    └─────────┬────────────────┬──────────────┘
+              │                │
+    ┌─────────▼──────┐ ┌──────▼──────────┐
+    │  PostgreSQL 15  │ │  Elasticsearch  │
+    │  Port 5432      │ │  Port 9200      │
+    │  (volume: pg)   │ │  (volume: es)   │
+    └─────────────────┘ └─────────────────┘
+```
+
+### docker-compose.staging.yml Key Sections
+
+```yaml
+services:
+  caddy:
+    image: caddy:2-alpine
+    ports: ["443:443", "80:80"]
+    volumes:
+      - ./reverse-proxy/Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: always
+
+  app-api:
+    build: .
+    command: npm run start:api
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - LLM_BASE_URL=${LLM_BASE_URL}
+      - LLM_API_KEY=${LLM_API_KEY}  # from .env.staging
+    deploy:
+      replicas: 2
+      resources:
+        limits: { memory: 512M, cpus: "0.5" }
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: always
+
+  app-worker:
+    build: .
+    command: npm run start:worker
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - LLM_BASE_URL=${LLM_BASE_URL}
+      - LLM_API_KEY=${LLM_API_KEY}
+    deploy:
+      replicas: 2
+      resources:
+        limits: { memory: 1G, cpus: "1.0" }
+    restart: always
+
+  temporal:
+    image: temporalio/auto-setup:latest
+    depends_on:
+      postgresql: { condition: service_healthy }
+      elasticsearch: { condition: service_healthy }
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PWD=${POSTGRES_PASSWORD}
+      - POSTGRES_SEEDS=postgresql
+      - ENABLE_ES=true
+      - ES_SEEDS=elasticsearch
+      - ES_VERSION=v7
+    deploy:
+      resources:
+        limits: { memory: 2G, cpus: "2.0" }
+    restart: always
+
+  postgresql:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: temporal
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  elasticsearch:
+    image: elasticsearch:7.17.18
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: always
+
+volumes:
+  pgdata:
+  esdata:
+  caddy_data:
+  caddy_config:
+```
+
+### Quality Gate
+
+- [ ] `docker compose -f docker-compose.staging.yml up` starts all services
+- [ ] TLS works (HTTPS with self-signed cert or Let's Encrypt staging)
+- [ ] API accessible via reverse proxy at `https://staging.example.com`
+- [ ] Temporal UI accessible at `https://staging.example.com/temporal`
+- [ ] Health checks pass for all services
+- [ ] E2E tests pass against staging environment
+- [ ] Elasticsearch advanced visibility works in Temporal UI
+- [ ] Secrets are NOT in docker-compose.yml (from `.env.staging`)
+- [ ] Services restart automatically on failure
+
+---
+
+## Phase 11 — Kubernetes & Helm Charts
+
+**Goal**: Create provider-agnostic Helm charts for deploying the Temporal Agent stack to any Kubernetes cluster.
+
+**Branch**: `feature/phase11-kubernetes-helm`
+
+### Dependencies
+
+- Phase 10 (staging validated)
+
+### Tasks
+
+| # | Task | TDD? | Files |
+|---|---|---|---|
+| 11.1 | Initialize Helm chart structure | N/A | `deploy/helm/temporal-agent/` |
+| 11.2 | Create `Chart.yaml` with dependencies | N/A | `Chart.yaml` |
+| 11.3 | Create `values.yaml` with all configurable parameters | N/A | `values.yaml` |
+| 11.4 | Create API server deployment + service manifests | N/A | `templates/api-deployment.yaml`, `templates/api-service.yaml` |
+| 11.5 | Create Worker deployment manifest (with HPA) | N/A | `templates/worker-deployment.yaml`, `templates/worker-hpa.yaml` |
+| 11.6 | Create ConfigMap and Secrets templates | N/A | `templates/configmap.yaml`, `templates/secrets.yaml` |
+| 11.7 | Create Ingress template (provider-agnostic) | N/A | `templates/ingress.yaml` |
+| 11.8 | Create Temporal server sub-chart or reference official Helm chart | N/A | `Chart.yaml` dependency |
+| 11.9 | Create PostgreSQL sub-chart or reference Bitnami chart | N/A | `Chart.yaml` dependency |
+| 11.10 | Add Elasticsearch sub-chart or reference Elastic chart | N/A | `Chart.yaml` dependency |
+| 11.11 | Create `values-dev.yaml` (minikube/kind defaults) | N/A | `values-dev.yaml` |
+| 11.12 | Create `values-staging.yaml` (staging defaults) | N/A | `values-staging.yaml` |
+| 11.13 | Create `values-production.yaml` (production defaults) | N/A | `values-production.yaml` |
+| 11.14 | Create namespace and service account templates | N/A | `templates/namespace.yaml`, `templates/serviceaccount.yaml` |
+| 11.15 | Create NetworkPolicy templates | N/A | `templates/networkpolicy.yaml` |
+| 11.16 | Create PodDisruptionBudget templates | N/A | `templates/pdb.yaml` |
+| 11.17 | Write Helm chart tests | N/A | `templates/tests/` |
+| 11.18 | Verify `helm install` works on minikube/kind | N/A | — |
+| 11.19 | Verify `helm upgrade` works (rolling update) | N/A | — |
+| 11.20 | Create deployment documentation | N/A | Update `docs/deployment.md` |
+
+### Helm Chart Structure
+
+```
+deploy/
+└── helm/
+    └── temporal-agent/
+        ├── Chart.yaml                  # Chart metadata + dependencies
+        ├── values.yaml                 # Default values (production-ready)
+        ├── values-dev.yaml             # Dev overrides (minikube)
+        ├── values-staging.yaml         # Staging overrides
+        ├── values-production.yaml      # Production overrides
+        ├── .helmignore
+        ├── templates/
+        │   ├── _helpers.tpl            # Template helpers
+        │   ├── namespace.yaml
+        │   ├── serviceaccount.yaml
+        │   ├── configmap.yaml
+        │   ├── secrets.yaml
+        │   ├── api-deployment.yaml
+        │   ├── api-service.yaml
+        │   ├── api-hpa.yaml
+        │   ├── worker-deployment.yaml
+        │   ├── worker-hpa.yaml
+        │   ├── ingress.yaml
+        │   ├── networkpolicy.yaml
+        │   ├── pdb.yaml
+        │   └── tests/
+        │       └── test-connection.yaml
+        └── README.md                   # Helm chart README
+```
+
+### Chart.yaml
+
+```yaml
+apiVersion: v2
+name: temporal-agent
+description: AI Agent orchestrated by Temporal with LLM reasoning and tool execution
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+dependencies:
+  - name: temporal
+    version: "0.46.x"
+    repository: "https://charts.temporal.io"
+    condition: temporal.enabled
+    alias: temporal
+
+  - name: postgresql
+    version: "15.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: postgresql.enabled
+    alias: postgresql
+
+  - name: elasticsearch
+    version: "8.x"
+    repository: "https://helm.elastic.co"
+    condition: elasticsearch.enabled
+    alias: elasticsearch
+```
+
+### values.yaml Key Sections
+
+```yaml
+global:
+  namespace: temporal-agent
+  environment: production
+
+api:
+  replicaCount: 3
+  image:
+    repository: temporal-agent
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 3000
+  ingress:
+    enabled: true
+    className: "nginx"
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - host: agent.example.com
+        paths: ["/"]
+    tls:
+      - secretName: agent-tls
+        hosts: [agent.example.com]
+  resources:
+    requests: { memory: "256Mi", cpu: "250m" }
+    limits: { memory: "512Mi", cpu: "500m" }
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilization: 70
+
+worker:
+  replicaCount: 3
+  image:
+    repository: temporal-agent
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  resources:
+    requests: { memory: "512Mi", cpu: "500m" }
+    limits: { memory: "1Gi", cpu: "1000m" }
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 20
+    targetCPUUtilization: 60
+  maxTasksPerSecond: 100
+
+config:
+  temporalAddress: "temporal-agent-temporal.default.svc:7233"
+  temporalNamespace: "default"
+  llmBaseUrl: ""
+  llmModel: "gpt-4"
+  llmMaxTokens: 4096
+  llmTemperature: 0.7
+  agentMaxIterations: 20
+  approvalTimeoutHours: 24
+  workspaceDir: "/app/workspace"
+
+secrets:
+  llmApiKey: ""
+  postgresPassword: ""
+
+temporal:
+  enabled: true   # Set false to use external Temporal (e.g., Temporal Cloud)
+
+postgresql:
+  enabled: true   # Set false to use external managed PostgreSQL
+
+elasticsearch:
+  enabled: true   # Set false to use external managed ES
+```
+
+### Deployment Environments
+
+```bash
+# Dev (minikube/kind)
+helm install temporal-agent ./deploy/helm/temporal-agent \
+  -f values-dev.yaml \
+  --set secrets.llmApiKey=$LLM_API_KEY
+
+# Staging
+helm install temporal-agent ./deploy/helm/temporal-agent \
+  -f values-staging.yaml \
+  --namespace temporal-agent-staging \
+  --set secrets.llmApiKey=$LLM_API_KEY
+
+# Production
+helm install temporal-agent ./deploy/helm/temporal-agent \
+  -f values-production.yaml \
+  --namespace temporal-agent \
+  --set secrets.llmApiKey=$LLM_API_KEY \
+  --set config.temporalAddress="temporal.example.com:7233"
+```
+
+### Quality Gate
+
+- [ ] `helm lint deploy/helm/temporal-agent` passes
+- [ ] `helm template` renders all manifests without errors
+- [ ] `helm install` succeeds on minikube/kind
+- [ ] API and Worker pods become ready
+- [ ] Ingress routes traffic to API
+- [ ] HPA scales workers under load
+- [ ] `helm upgrade` performs rolling update without downtime
+- [ ] `helm rollback` restores previous version
+- [ ] Network policies restrict pod-to-pod communication
+- [ ] E2E tests pass against k8s deployment
+- [ ] Documentation covers all deployment scenarios
+
+---
+
+## Phase 12 — Monitoring & Observability
+
+**Goal**: Add comprehensive monitoring, logging, and alerting for production operations.
+
+**Branch**: `feature/phase12-monitoring`
+
+### Dependencies
+
+- Phase 11 (Kubernetes deployment working)
+
+### Tasks
+
+| # | Task | TDD? | Files |
+|---|---|---|---|
+| 12.1 | Add Prometheus metrics to API server (`prom-client`) | N/A | `src/api/server.ts` |
+| 12.2 | Add Prometheus metrics to Worker (Temporal SDK built-in) | N/A | `src/worker/worker.ts` |
+| 12.3 | Create Grafana dashboard for Temporal Agent | N/A | `deploy/grafana/dashboards/` |
+| 12.4 | Create Prometheus rules / alerts | N/A | `deploy/prometheus/alerts.yaml` |
+| 12.5 | Add structured JSON logging (pino) | N/A | `src/shared/logger.ts` |
+| 12.6 | Add Helm values for monitoring stack | N/A | `deploy/helm/temporal-agent/values.yaml` |
+| 12.7 | Create monitoring sub-chart (Prometheus + Grafana) | N/A | `deploy/helm/temporal-agent/Chart.yaml` |
+| 12.8 | Create runbooks for common alerts | N/A | `docs/runbooks/` |
+| 12.9 | Create monitoring documentation | N/A | Update `docs/deployment.md` |
+
+### Metrics to Expose
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `agent_workflows_started_total` | Counter | namespace | Total agent workflows started |
+| `agent_workflows_completed_total` | Counter | namespace, status | Total completed (by status) |
+| `agent_workflow_duration_seconds` | Histogram | namespace, status | Workflow execution duration |
+| `agent_iterations_total` | Counter | namespace | Total LLM iterations |
+| `agent_tool_calls_total` | Counter | namespace, tool_name | Tool executions by tool |
+| `agent_tool_duration_seconds` | Histogram | namespace, tool_name | Tool execution duration |
+| `agent_approval_wait_seconds` | Histogram | namespace | Time waiting for approval |
+| `agent_llm_tokens_total` | Counter | namespace, type (prompt/completion) | Token usage |
+| `agent_llm_errors_total` | Counter | namespace, error_type | LLM API errors |
+| `http_requests_total` | Counter | method, path, status | API request count |
+| `http_request_duration_seconds` | Histogram | method, path | API request latency |
+
+### Alerts
+
+| Alert | Condition | Severity | Action |
+|---|---|---|---|
+| `AgentHighFailureRate` | >10% workflows failing over 5m | Warning | Check LLM provider health |
+| `AgentCriticalFailureRate` | >25% workflows failing over 5m | Critical | Investigate immediately |
+| `AgentStuckWorkflows` | >50 workflows running >30m | Warning | Check for stuck approvals |
+| `LLMProviderDown` | >5 consecutive LLM errors | Critical | Check API key, provider status |
+| `WorkerTaskQueueBacklog` | >1000 pending tasks | Warning | Scale up workers |
+| `HighMemoryUsage` | >80% memory limit | Warning | Investigate or scale |
+| `APIHighLatency` | p99 > 5s over 5m | Warning | Check downstream services |
+
+### Grafana Dashboard Panels
+
+1. **Overview**: Active workflows, completed/failed rates, avg duration
+2. **LLM**: Token usage, error rates, latency, cost estimation
+3. **Tools**: Call frequency by tool, success rates, duration distribution
+4. **Approvals**: Pending count, avg wait time, approval/rejection ratio
+5. **Infrastructure**: CPU, memory, worker count, API request rate
+
+### Quality Gate
+
+- [ ] Prometheus scrapes metrics from API and Worker
+- [ ] Grafana dashboards render correctly
+- [ ] Alerts fire for configured conditions
+- [ ] Structured logs include correlation IDs (workflow ID)
+- [ ] Monitoring documentation complete
+
+---
+
 ## Dependency Graph
 
 ```
@@ -540,13 +1060,26 @@ Phase 0 (Infrastructure)
                │            │
                └─────┬──────┘
                      ▼
-              Phase 8 (Docker & Scripts)
+              Phase 8 (Local Docker Compose)
                      │
                      ▼
               Phase 9 (E2E & Polish)
+                     │
+                     ▼
+           ┌─────────┴──────────┐
+           ▼                    ▼
+    Phase 10               Phase 11
+    (Staging Docker)       (Kubernetes & Helm)
+                                  │
+                                  ▼
+                           Phase 12
+                           (Monitoring & Observability)
 ```
 
-**Parallelizable**: Phases 2 and 3 can be done in parallel (both depend only on Phase 1). Phases 6 and 7 can also be parallelized (both depend on Phase 5).
+**Parallelizable**:
+- Phases 2 and 3 (both depend only on Phase 1)
+- Phases 6 and 7 (both depend on Phase 5)
+- Phases 10 and 11 can start together after Phase 9 (staging Docker is simpler and validates before k8s)
 
 ---
 
@@ -566,6 +1099,9 @@ Each phase must pass its quality gate before merging to `main`:
 | 7 | All pass | Pass | >= 85% `api/` | API design review |
 | 8 | — | Pass | — | Dockerfile review |
 | 9 | All E2E pass | Pass | >= 85% overall | Full review |
+| 10 | E2E vs staging | Pass | — | Security + TLS review |
+| 11 | Helm tests pass | Pass | — | k8s manifest review |
+| 12 | — | Pass | — | Alerting rules review |
 
 ---
 
@@ -585,8 +1121,11 @@ Examples:
   feature/phase5-workflows
   feature/phase6-worker
   feature/phase7-api-server
-  feature/phase8-docker-scripts
+  feature/phase8-local-docker
   feature/phase9-e2e-polish
+  feature/phase10-staging-docker
+  feature/phase11-kubernetes-helm
+  feature/phase12-monitoring
 ```
 
 ### Merge Process
@@ -608,11 +1147,14 @@ Examples:
 type(scope): description
 
 Types: feat, fix, test, refactor, docs, chore, ci
-Scopes: shared, llm, tools, activities, workflows, worker, api, infra
+Scopes: shared, llm, tools, activities, workflows, worker, api, infra, deploy, helm
 
 Examples:
   feat(shared): add config loader with Zod validation
   test(llm): add tests for OpenAI-compatible provider
   fix(tools): block path traversal in file-io tool
   refactor(workflows): extract message truncation helper
+  feat(deploy): add staging docker-compose with TLS
+  feat(helm): create Helm chart for k8s deployment
+  chore(infra): add Prometheus metrics to API server
 ```
