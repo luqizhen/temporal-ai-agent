@@ -1,6 +1,6 @@
 # Deployment Guide
 
-This document covers deployment strategies for the Temporal Agent across three environments: local development, staging (single VM), and production (Kubernetes).
+This document covers deployment strategies for the Temporal Agent across three environments: local development, staging (Kubernetes), and production (Kubernetes). Both staging and production use Helm charts, deployed via GitHub Actions CI/CD.
 
 ---
 
@@ -8,25 +8,26 @@ This document covers deployment strategies for the Temporal Agent across three e
 
 1. [Deployment Overview](#deployment-overview)
 2. [Local Development](#local-development)
-3. [Staging (Docker Compose)](#staging-docker-compose)
+3. [Staging (Kubernetes)](#staging-kubernetes)
 4. [Production (Kubernetes)](#production-kubernetes)
-5. [Temporal Server Deployment](#temporal-server-deployment)
-6. [Database Management](#database-management)
-7. [Secrets Management](#secrets-management)
-8. [TLS & Networking](#tls--networking)
-9. [Scaling Strategy](#scaling-strategy)
-10. [Backup & Recovery](#backup--recovery)
-11. [Troubleshooting](#troubleshooting)
+5. [CI/CD Pipeline](#cicd-pipeline)
+6. [Temporal Server Deployment](#temporal-server-deployment)
+7. [Database Management](#database-management)
+8. [Secrets Management](#secrets-management)
+9. [TLS & Networking](#tls--networking)
+10. [Scaling Strategy](#scaling-strategy)
+11. [Backup & Recovery](#backup--recovery)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
 ## Deployment Overview
 
-| Environment | Orchestration | Use Case | TLS | Replicas |
-|---|---|---|---|---|
-| Local | Docker Compose | Development & testing | No | 1 per service |
-| Staging | Docker Compose | Pre-production validation | Yes (self-signed) | 2 API + 2 Worker |
-| Production | Kubernetes (Helm) | Live traffic | Yes (cert-manager) | 3+ API + 3-20 Worker (HPA) |
+| Environment | Orchestration | Use Case | TLS | Replicas | Deploy Trigger |
+|---|---|---|---|---|---|
+| Local | Docker Compose | Development & testing | No | 1 per service | Manual |
+| Staging | Kubernetes (Helm) | Pre-production validation | Yes (cert-manager) | 2 API + 2 Worker | Auto (merge to main) |
+| Production | Kubernetes (Helm) | Live traffic | Yes (cert-manager) | 3+ API + 3-20 Worker (HPA) | Manual (release tag) |
 
 ### Infrastructure Components
 
@@ -76,142 +77,186 @@ localhost:5432  ──►  PostgreSQL (Docker)
 
 ---
 
-## Staging (Docker Compose)
+## Staging (Kubernetes)
 
-A production-like environment on a single VM. Suitable for integration testing, load testing, and pre-release validation.
+Staging uses the same Helm chart as production, with different values. Deployed automatically by GitHub Actions on every merge to `main`.
 
 ### Prerequisites
 
-- Linux VM (Ubuntu 22.04+, 4 vCPU, 8GB RAM, 50GB SSD)
-- Docker 24+ and Docker Compose v2+
-- Domain name pointing to VM (for TLS)
-- LLM API key
+- Kubernetes cluster (v1.27+) — can be a small single-node cluster (minikube, kind, or a cloud k8s cluster)
+- `kubectl` configured with cluster access
+- `helm` v3.8+
+- GitHub repository with Actions enabled
+- Container registry (GHCR) with published images
+- DNS records for staging domain
 
-### Setup
-
-```bash
-# 1. Clone the repository
-git clone <repo-url> && cd temporal-agent
-
-# 2. Create staging env file
-cp .env.staging.example .env.staging
-# Edit .env.staging with real values:
-#   LLM_API_KEY=sk-...
-#   POSTGRES_PASSWORD=<strong-password>
-#   DOMAIN=staging.your-domain.com
-
-# 3. Deploy
-./scripts/deploy-staging.sh
-```
-
-### deploy-staging.sh
+### Setup (First Time)
 
 ```bash
-#!/bin/bash
-set -euo pipefail
+# 1. Add dependency repos
+helm repo add temporal https://charts.temporal.io
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo add elastic https://helm.elastic.co
+helm repo update
 
-echo "=== Deploying Temporal Agent (Staging) ==="
+# 2. Create namespace
+kubectl create namespace temporal-agent-staging
 
-# Pull latest images
-docker compose -f docker-compose.staging.yml pull
+# 3. Create secrets
+kubectl create secret generic temporal-agent-secrets \
+  --namespace temporal-agent-staging \
+  --from-literal=llm-api-key="$LLM_API_KEY" \
+  --from-literal=postgres-password="$(openssl rand -base64 32)"
 
-# Start services
-docker compose -f docker-compose.staging.yml up -d
-
-# Wait for Temporal to be ready
-echo "Waiting for Temporal server..."
-until docker compose -f docker-compose.staging.yml exec -T temporal \
-  temporal workflow list --address temporal:7233 2>/dev/null; do
-  sleep 5
-done
-
-echo "Creating staging namespace..."
-docker compose -f docker-compose.staging.yml exec -T temporal-admin-tools \
-  temporal operator namespace create staging --retention 7d || true
-
-echo "=== Staging deployment complete ==="
-echo "API:        https://${DOMAIN}"
-echo "Temporal:   https://${DOMAIN}/temporal"
-echo ""
-echo "Useful commands:"
-echo "  docker compose -f docker-compose.staging.yml logs -f app-api"
-echo "  docker compose -f docker-compose.staging.yml logs -f app-worker"
-echo "  docker compose -f docker-compose.staging.yml ps"
+# 4. Install (or let CI/CD do it on first merge)
+helm install temporal-agent ./deploy/helm/temporal-agent \
+  --namespace temporal-agent-staging \
+  -f deploy/helm/temporal-agent/values-staging.yaml \
+  --set secrets.llmApiKey="$LLM_API_KEY"
 ```
+
+### Subsequent Deploys (Automatic)
+
+After setup, staging deploys are **automatic** via GitHub Actions on every merge to `main`:
+
+```
+PR merged to main → CI/CD: test + build + push image → helm upgrade staging
+```
+
+See [CI/CD Pipeline](#cicd-pipeline) for details.
 
 ### Architecture
 
 ```
 Internet
     │
-    ▼  (DNS: staging.example.com)
+    ▼  (DNS: staging.agent.example.com)
 ┌──────────────┐
-│  Caddy       │  Port 80/443
-│  TLS term.   │  Auto HTTPS (Let's Encrypt or self-signed)
-└──┬───────┬───┘
-   │       │
-   ▼       ▼
-┌──────┐ ┌──────────┐
-│ API  │ │ Temporal  │
-│ x2   │ │ UI        │
-└──┬───┘ └──────────┘
-   │
-   ▼
-┌──────┐
-│Worker│
-│ x2   │
-└──┬───┘
-   │
-   ▼
-┌──────────┐
-│ Temporal │──── PostgreSQL
-│ Server   │──── Elasticsearch
-└──────────┘
+│  Ingress     │  TLS via cert-manager (Let's Encrypt staging)
+│  + cert-mgr  │
+└──────┬───────┘
+       │
+┌──────┴──────┐
+│  API Pods   │  ClusterIP → 2 replicas
+│  (Fastify)  │
+└──────┬──────┘
+       │
+┌──────┴──────┐
+│ Worker Pods │  2 replicas
+└──────┬──────┘
+       │
+┌──────┴──────────────────┐
+│  Temporal Server        │  1 replica
+│  Persistence: PostgreSQL│  (in-cluster or managed)
+│  Visibility: ES         │  (in-cluster or managed)
+└─────────────────────────┘
+```
+
+### values-staging.yaml
+
+```yaml
+global:
+  namespace: temporal-agent-staging
+  environment: staging
+
+api:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/your-org/temporal-agent
+    tag: staging-latest
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: staging.agent.example.com
+        paths: ["/"]
+    tls:
+      - secretName: agent-staging-tls
+        hosts: [staging.agent.example.com]
+  resources:
+    requests: { memory: "256Mi", cpu: "250m" }
+    limits: { memory: "512Mi", cpu: "500m" }
+  hpa:
+    enabled: false
+
+worker:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/your-org/temporal-agent
+    tag: staging-latest
+  resources:
+    requests: { memory: "256Mi", cpu: "250m" }
+    limits: { memory: "512Mi", cpu: "500m" }
+  hpa:
+    enabled: false
+
+config:
+  agentMaxIterations: 20
+  approvalTimeoutHours: 1
+  workspaceDir: "/app/workspace"
+
+temporal:
+  enabled: true
+  server:
+    replicaCount: 1
+
+postgresql:
+  enabled: true
+  primary:
+    persistence:
+      size: 10Gi
+
+elasticsearch:
+  enabled: true
+  replicas: 1
+  resources:
+    requests: { memory: "512Mi" }
 ```
 
 ### Resource Requirements
 
-| Service | Memory | CPU |
-|---|---|---|
-| Caddy | 64MB | 0.1 |
-| API (x2) | 512MB each | 0.5 each |
-| Worker (x2) | 1GB each | 1.0 each |
-| Temporal Server | 2GB | 2.0 |
-| PostgreSQL | 512MB | 1.0 |
-| Elasticsearch | 1GB | 1.0 |
-| **Total** | **~7.5GB** | **~7.2 CPUs** |
+| Component | Memory | CPU | Replicas |
+|---|---|---|---|
+| API | 512MB | 0.5 | 2 |
+| Worker | 512MB | 0.5 | 2 |
+| Temporal Server | 1GB | 1.0 | 1 |
+| PostgreSQL | 512MB | 0.5 | 1 |
+| Elasticsearch | 512MB | 0.5 | 1 |
+| **Total** | **~4.5GB** | **~4.5 CPUs** | |
 
 ### Monitoring
 
 ```bash
-# Check service health
-docker compose -f docker-compose.staging.yml ps
-docker compose -f docker-compose.staging.yml exec -T app-api curl -s http://localhost:3000/health
+# Check pod status
+kubectl get pods -n temporal-agent-staging
 
-# View logs
-docker compose -f docker-compose.staging.yml logs -f --tail=100 app-api
-docker compose -f docker-compose.staging.yml logs -f --tail=100 app-worker
-docker compose -f docker-compose.staging.yml logs -f --tail=100 temporal
+# View API logs
+kubectl logs -f -l app=temporal-agent-api -n temporal-agent-staging
 
-# Resource usage
-docker stats --no-stream
+# View Worker logs
+kubectl logs -f -l app=temporal-agent-worker -n temporal-agent-staging
+
+# Port-forward for local testing
+kubectl port-forward svc/temporal-agent-api 3000:3000 -n temporal-agent-staging
+curl http://localhost:3000/health
 ```
 
 ---
 
 ## Production (Kubernetes)
 
-Provider-agnostic Kubernetes deployment using Helm.
+Production uses the same Helm chart as staging, with production-grade values. Deployed via GitHub Actions when a release tag is created.
 
 ### Prerequisites
 
-- Kubernetes cluster (v1.27+)
+- Production Kubernetes cluster (v1.27+, multi-node)
 - `kubectl` configured
 - `helm` v3.8+
-- Container registry with built images
-- DNS records pointing to cluster ingress
+- Container registry with published images
+- DNS records for production domain
+- TLS certificates (via cert-manager + Let's Encrypt or custom CA)
 
-### Quick Deploy
+### Quick Deploy (Manual, or via CI/CD)
 
 ```bash
 # 1. Add dependency repos
@@ -319,6 +364,59 @@ secrets:
               │ (RDS/Cloud│  │ (managed or │
               │  SQL)     │  │  self-hosted)│
               └───────────┘  └──────────────┘
+```
+
+---
+
+## CI/CD Pipeline
+
+All deployments to staging and production are automated via GitHub Actions. See [CI/CD Documentation](./cicd.md) for full details.
+
+### Pipeline Summary
+
+```
+┌─────────────────────┐     ┌─────────────────────┐     ┌─────────────────────┐
+│   Pull Request      │     │   Merge to main     │     │   Release Tag       │
+│                     │     │                     │     │   (v1.0.0)          │
+│   ci.yml:           │     │   deploy-staging:   │     │   deploy-production:│
+│   • lint            │     │   • test            │     │   • test            │
+│   • typecheck       │     │   • build + push    │     │   • retag :v1.0.0   │
+│   • test + coverage │     │     Docker image    │     │   • publish Helm    │
+│   • docker build    │     │   • helm upgrade    │     │     chart           │
+│     (no push)       │     │     staging ns      │     │   • helm upgrade    │
+│   • helm lint       │     │   • smoke test      │     │     production ns   │
+│                     │     │                     │     │   • smoke test      │
+└─────────────────────┘     └─────────────────────┘     └─────────────────────┘
+```
+
+### GitHub Environments
+
+| Environment | Protection | Auto-deploy | Trigger |
+|---|---|---|---|
+| staging | None | Yes | Push to `main` |
+| production | 1+ required reviewers | No (manual approval) | Release `v*` tag |
+
+### GitHub Secrets
+
+| Secret | Description |
+|---|---|
+| `KUBECONFIG_STAGING` | Staging cluster kubeconfig (base64 encoded) |
+| `KUBECONFIG_PRODUCTION` | Production cluster kubeconfig (base64 encoded) |
+| `LLM_API_KEY_STAGING` | LLM API key for staging |
+| `LLM_API_KEY_PRODUCTION` | LLM API key for production |
+
+### Manual Operations
+
+```bash
+# Force redeploy staging (without a code change)
+git commit --allow-empty -m "chore: trigger staging deploy"
+git push origin main
+
+# Rollback staging
+helm rollback temporal-agent --namespace temporal-agent-staging
+
+# Rollback production
+helm rollback temporal-agent --namespace temporal-agent
 ```
 
 ---

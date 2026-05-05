@@ -17,7 +17,7 @@ This document defines the phased implementation plan for the Temporal Agent proj
 9. [Phase 7 — API Server](#phase-7--api-server)
 10. [Phase 8 — Local Docker Compose](#phase-8--local-docker-compose)
 11. [Phase 9 — E2E Testing & Polish](#phase-9--e2e-testing--polish)
-12. [Phase 10 — Staging Docker Compose](#phase-10--staging-docker-compose)
+12. [Phase 10 — CI/CD Pipeline (GitHub Actions)](#phase-10--cicd-pipeline-github-actions)
 13. [Phase 11 — Kubernetes & Helm Charts](#phase-11--kubernetes--helm-charts)
 14. [Phase 12 — Monitoring & Observability](#phase-12--monitoring--observability)
 15. [Dependency Graph](#dependency-graph)
@@ -49,15 +49,16 @@ Phase 8: Local Docker Compose ────────────────�
     │
 Phase 9: E2E Testing & Polish ────────────────── (full-stack validation)
     │
-    ├── Phase 10: Staging Docker Compose ──────── (production-like single VM)
+Phase 10: CI/CD Pipeline ─────────────────────── (GitHub Actions)
     │
-    ├── Phase 11: Kubernetes & Helm ───────────── (production k8s deployment)
+    ├── Phase 11: Kubernetes & Helm ───────────── (staging + production k8s)
     │        │
     │        └── Phase 12: Monitoring & Observability ── (metrics, logging, alerting)
 ```
 
 **Phases 0-9**: Core application development (local dev focused)
-**Phases 10-12**: Deployment & operations (staging → production)
+**Phase 10**: CI/CD automation (GitHub Actions: build, test, push, deploy)
+**Phases 11-12**: Deployment & operations (staging + production via Helm)
 
 **Estimated effort**: ~13 phases, each independently testable and mergeable.
 
@@ -576,193 +577,372 @@ volumes:
 
 ---
 
-## Phase 10 — Staging Docker Compose
+## Phase 10 — CI/CD Pipeline (GitHub Actions)
 
-**Goal**: Create a production-like Docker Compose setup for staging on a single VM with TLS, proper persistence, secrets management, and health checks.
+**Goal**: Set up a complete CI/CD pipeline using GitHub Actions that automates testing, building, Docker image publishing, and deployment to staging and production Kubernetes clusters.
 
-**Branch**: `feature/phase10-staging-docker`
+**Branch**: `feature/phase10-cicd-github-actions`
 
 ### Dependencies
 
 - Phase 9 (E2E validated)
+- Dockerfile from Phase 8
+- Helm chart from Phase 11 (can be developed in parallel; CI/CD references it)
 
 ### Tasks
 
-| # | Task | TDD? | Files |
-|---|---|---|---|
-| 10.1 | Create `docker-compose.staging.yml` (extends local compose) | N/A | `docker-compose.staging.yml` |
-| 10.2 | Add Elasticsearch service for Temporal advanced visibility | N/A | `docker-compose.staging.yml` |
-| 10.3 | Add TLS termination with Caddy/Nginx reverse proxy | N/A | `reverse-proxy/`, `Caddyfile` or `nginx.conf` |
-| 10.4 | Add health checks to all services | N/A | `docker-compose.staging.yml` |
-| 10.5 | Add resource limits (memory, CPU) per service | N/A | `docker-compose.staging.yml` |
-| 10.6 | Add Docker secrets or `.env.staging` for production secrets | N/A | `.env.staging.example` |
-| 10.7 | Add log aggregation config (JSON structured logs) | N/A | Logging config |
-| 10.8 | Add persistent volumes with backup strategy | N/A | Volume config |
-| 10.9 | Add Temporal namespace setup (`default` + `staging`) | N/A | `scripts/setup-staging.sh` |
-| 10.10 | Create `scripts/deploy-staging.sh` deployment script | N/A | `scripts/deploy-staging.sh` |
-| 10.11 | Verify full staging stack starts and passes E2E tests | N/A | — |
-| 10.12 | Create staging documentation | N/A | `docs/deployment.md` |
+| # | Task | Files |
+|---|---|---|
+| 10.1 | Create `.github/workflows/ci.yml` (PR validation) | `.github/workflows/ci.yml` |
+| 10.2 | Create `.github/workflows/deploy-staging.yml` (merge to main) | `.github/workflows/deploy-staging.yml` |
+| 10.3 | Create `.github/workflows/deploy-production.yml` (release tag) | `.github/workflows/deploy-production.yml` |
+| 10.4 | Create `.github/workflows/pr-cleanup.yml` (PR preview cleanup) | `.github/workflows/pr-cleanup.yml` |
+| 10.5 | Create Docker build & push action | `.github/actions/docker-build/action.yml` |
+| 10.6 | Create Helm deploy action | `.github/actions/helm-deploy/action.yml` |
+| 10.7 | Configure GitHub secrets and environments | — |
+| 10.8 | Add Helm chart versioning (chart version = app version) | `deploy/helm/temporal-agent/Chart.yaml` |
+| 10.9 | Add semantic versioning script | `scripts/version.sh` |
+| 10.10 | Create CI/CD documentation | `docs/cicd.md` |
+| 10.11 | Verify full pipeline: PR → merge → staging deploy | — |
 
-### Infrastructure Architecture
+### Pipeline Architecture
 
 ```
-                    Internet
-                       │
-                       ▼
-              ┌─────────────────┐
-              │  Caddy/Nginx    │  TLS termination
-              │  (reverse proxy)│  Port 443 → internal
-              └────────┬────────┘
-                       │
-              ┌────────┴────────┐
-              │                 │
-    ┌─────────▼──────┐ ┌───────▼──────────┐
-    │  app-api       │ │  Temporal UI     │
-    │  (Fastify)     │ │  (Web UI)        │
-    │  Port 3000     │ │  Port 8080       │
-    └────────────────┘ └──────────────────┘
-              │
-    ┌─────────▼──────────────────────────────┐
-    │  app-worker (replicas: 2)               │
-    │  (Temporal Worker)                      │
-    └─────────────────────────────────────────┘
-              │
-    ┌─────────▼──────────────────────────────┐
-    │  Temporal Server                        │
-    │  Port 7233                              │
-    │  Persistence: PostgreSQL                │
-    │  Visibility: Elasticsearch              │
-    └─────────┬────────────────┬──────────────┘
-              │                │
-    ┌─────────▼──────┐ ┌──────▼──────────┐
-    │  PostgreSQL 15  │ │  Elasticsearch  │
-    │  Port 5432      │ │  Port 9200      │
-    │  (volume: pg)   │ │  (volume: es)   │
-    └─────────────────┘ └─────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                        GitHub Actions Pipelines                          │
+├──────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  1. ci.yml — Pull Request Validation                                    │
+│     trigger: pull_request (main)                                        │
+│     ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌───────────────────┐    │
+│     │  lint    │  │  build   │  │  test    │  │  docker build     │    │
+│     │  (ESLint)│  │  (tsc)   │  │ (vitest) │  │  (build, no push) │    │
+│     └──────────┘  └──────────┘  └──────────┘  └───────────────────┘    │
+│                                                                          │
+│  2. deploy-staging.yml — Auto-deploy to Staging                         │
+│     trigger: push (main)                                                │
+│     ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌───────────────────┐    │
+│     │  test    │  │  build   │  │ docker    │  │ helm upgrade      │    │
+│     │  (full)  │  │  (tsc)   │  │ push      │  │ (staging ns)      │    │
+│     │          │  │          │  │ (:sha)    │  │ + smoke test      │    │
+│     └──────────┘  └──────────┘  └──────────┘  └───────────────────┘    │
+│                                                                          │
+│  3. deploy-production.yml — Manual Promote to Production                │
+│     trigger: release (v*)                                               │
+│     ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌───────────────────┐    │
+│     │  test    │  │ retag    │  │ helm      │  │ helm upgrade      │    │
+│     │  (full)  │  │ :sha→:vN │  │ package   │  │ (production ns)   │    │
+│     │          │  │          │  │ + publish │  │ + smoke test      │    │
+│     └──────────┘  └──────────┘  └──────────┘  └───────────────────┘    │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
-### docker-compose.staging.yml Key Sections
+### Workflow: ci.yml (PR Validation)
 
 ```yaml
-services:
-  caddy:
-    image: caddy:2-alpine
-    ports: ["443:443", "80:80"]
-    volumes:
-      - ./reverse-proxy/Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data:/data
-      - caddy_config:/config
-    restart: always
+name: CI
+on:
+  pull_request:
+    branches: [main]
 
-  app-api:
-    build: .
-    command: npm run start:api
-    environment:
-      - TEMPORAL_ADDRESS=temporal:7233
-      - LLM_BASE_URL=${LLM_BASE_URL}
-      - LLM_API_KEY=${LLM_API_KEY}  # from .env.staging
-    deploy:
-      replicas: 2
-      resources:
-        limits: { memory: 512M, cpus: "0.5" }
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    restart: always
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: npm ci
+      - run: npm run lint
 
-  app-worker:
-    build: .
-    command: npm run start:worker
-    environment:
-      - TEMPORAL_ADDRESS=temporal:7233
-      - LLM_BASE_URL=${LLM_BASE_URL}
-      - LLM_API_KEY=${LLM_API_KEY}
-    deploy:
-      replicas: 2
-      resources:
-        limits: { memory: 1G, cpus: "1.0" }
-    restart: always
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: npm ci
+      - run: npm run build
 
-  temporal:
-    image: temporalio/auto-setup:latest
-    depends_on:
-      postgresql: { condition: service_healthy }
-      elasticsearch: { condition: service_healthy }
-    environment:
-      - DB=postgresql
-      - DB_PORT=5432
-      - POSTGRES_USER=postgres
-      - POSTGRES_PWD=${POSTGRES_PASSWORD}
-      - POSTGRES_SEEDS=postgresql
-      - ENABLE_ES=true
-      - ES_SEEDS=elasticsearch
-      - ES_VERSION=v7
-    deploy:
-      resources:
-        limits: { memory: 2G, cpus: "2.0" }
-    restart: always
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: npm ci
+      - run: npm run test:coverage
+      - name: Coverage threshold check
+        run: npm run test:coverage -- --check-coverage
 
-  postgresql:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: temporal
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: always
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-  elasticsearch:
-    image: elasticsearch:7.17.18
-    environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=false
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
-    volumes:
-      - esdata:/usr/share/elasticsearch/data
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-    restart: always
+  helm-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - run: helm lint deploy/helm/temporal-agent
+      - run: helm template temporal-agent deploy/helm/temporal-agent > /dev/null
+```
 
-volumes:
-  pgdata:
-  esdata:
-  caddy_data:
-  caddy_config:
+### Workflow: deploy-staging.yml
+
+```yaml
+name: Deploy Staging
+on:
+  push:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: npm ci
+      - run: npm run test
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
+      image_digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=
+            type=raw,value=staging-latest
+      - uses: docker/build-push-action@v5
+        id: build
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-staging:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBECONFIG_STAGING }}
+      - name: Deploy
+        run: |
+          helm upgrade temporal-agent ./deploy/helm/temporal-agent \
+            --install \
+            --namespace temporal-agent-staging \
+            --create-namespace \
+            -f deploy/helm/temporal-agent/values-staging.yaml \
+            --set api.image.tag=${{ github.sha }} \
+            --set worker.image.tag=${{ github.sha }} \
+            --set secrets.llmApiKey=${{ secrets.LLM_API_KEY_STAGING }} \
+            --wait --timeout 5m
+      - name: Smoke test
+        run: |
+          kubectl port-forward svc/temporal-agent-api 3000:3000 \
+            -n temporal-agent-staging &
+          sleep 10
+          curl -sf http://localhost:3000/health | jq .status | grep -q ok
+```
+
+### Workflow: deploy-production.yml
+
+```yaml
+name: Deploy Production
+on:
+  release:
+    types: [published]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: npm ci
+      - run: npm run test
+
+  retag-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Retag and push
+        run: |
+          SOURCE_TAG=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$(echo ${{ github.sha }} | cut -c1-7)
+          TARGET_TAG=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+          LATEST_TAG=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker buildx imagetools create \
+            -t $TARGET_TAG \
+            -t $LATEST_TAG \
+            $SOURCE_TAG
+
+  publish-helm-chart:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Package and publish Helm chart
+        run: |
+          helm package deploy/helm/temporal-agent \
+            --app-version ${{ github.ref_name }} \
+            --destination ./dist
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Option A: Push to gh-pages for Helm repo hosting
+          # Option B: Push OCI chart to GHCR
+          helm push ./dist/temporal-agent-*.tgz \
+            oci://${{ env.REGISTRY }}/${{ github.repository }}/charts
+
+  deploy-production:
+    needs: [retag-and-push, publish-helm-chart]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBECONFIG_PRODUCTION }}
+      - name: Deploy
+        run: |
+          helm upgrade temporal-agent ./deploy/helm/temporal-agent \
+            --install \
+            --namespace temporal-agent \
+            --create-namespace \
+            -f deploy/helm/temporal-agent/values-production.yaml \
+            --set api.image.tag=${{ github.ref_name }} \
+            --set worker.image.tag=${{ github.ref_name }} \
+            --set secrets.llmApiKey=${{ secrets.LLM_API_KEY_PRODUCTION }} \
+            --wait --timeout 10m
+      - name: Smoke test
+        run: |
+          kubectl port-forward svc/temporal-agent-api 3000:3000 \
+            -n temporal-agent &
+          sleep 10
+          curl -sf http://localhost:3000/health | jq .status | grep -q ok
+```
+
+### Composite Actions
+
+```
+.github/
+├── workflows/
+│   ├── ci.yml                    # PR validation
+│   ├── deploy-staging.yml        # Auto-deploy on merge to main
+│   ├── deploy-production.yml     # Deploy on release
+│   └── pr-cleanup.yml            # Cleanup PR preview resources
+└── actions/
+    ├── docker-build/
+    │   └── action.yml            # Reusable Docker build + push
+    └── helm-deploy/
+        └── action.yml            # Reusable Helm deploy step
+```
+
+### GitHub Secrets & Environments
+
+| Secret | Scope | Description |
+|---|---|---|
+| `GITHUB_TOKEN` | Auto | GHCR package publishing |
+| `KUBECONFIG_STAGING` | staging env | Staging cluster kubeconfig |
+| `KUBECONFIG_PRODUCTION` | production env | Production cluster kubeconfig |
+| `LLM_API_KEY_STAGING` | staging env | LLM API key for staging |
+| `LLM_API_KEY_PRODUCTION` | production env | LLM API key for production |
+
+**Environment Protection Rules**:
+
+| Environment | Required Reviewers | Wait Timer | Branch |
+|---|---|---|---|
+| staging | None | 0s | main (auto-deploy) |
+| production | 1+ reviewers | 5 min | release tags only |
+
+### Release Process
+
+```
+1. Develop on feature branches → PR → CI validates
+2. Merge PR to main → CI + auto-deploy to staging
+3. Test on staging → Create release tag (v1.0.0)
+4. GitHub Actions → Build + publish Helm chart + deploy to production
+5. Monitor → Rollback if needed: helm rollback
 ```
 
 ### Quality Gate
 
-- [ ] `docker compose -f docker-compose.staging.yml up` starts all services
-- [ ] TLS works (HTTPS with self-signed cert or Let's Encrypt staging)
-- [ ] API accessible via reverse proxy at `https://staging.example.com`
-- [ ] Temporal UI accessible at `https://staging.example.com/temporal`
-- [ ] Health checks pass for all services
-- [ ] E2E tests pass against staging environment
-- [ ] Elasticsearch advanced visibility works in Temporal UI
-- [ ] Secrets are NOT in docker-compose.yml (from `.env.staging`)
-- [ ] Services restart automatically on failure
+- [ ] `ci.yml` passes on every PR (lint + build + test + docker build + helm lint)
+- [ ] `deploy-staging.yml` deploys to staging on merge to main
+- [ ] Staging smoke test passes after every deploy
+- [ ] `deploy-production.yml` requires manual approval
+- [ ] Docker images published to GHCR with SHA and version tags
+- [ ] Helm chart published as OCI artifact
+- [ ] GitHub secrets configured for both environments
+- [ ] Rollback procedure documented and tested
 
 ---
 
 ## Phase 11 — Kubernetes & Helm Charts
 
-**Goal**: Create provider-agnostic Helm charts for deploying the Temporal Agent stack to any Kubernetes cluster.
+**Goal**: Create provider-agnostic Helm charts for deploying the Temporal Agent stack to any Kubernetes cluster. The same chart is used for staging and production, differentiated by values files. CI/CD (Phase 10) automates deployment via `helm upgrade`.
 
 **Branch**: `feature/phase11-kubernetes-helm`
 
 ### Dependencies
 
-- Phase 10 (staging validated)
+- Phase 10 (CI/CD pipeline for automated deployment)
+- Dockerfile from Phase 8
 
 ### Tasks
 
@@ -1066,20 +1246,19 @@ Phase 0 (Infrastructure)
               Phase 9 (E2E & Polish)
                      │
                      ▼
-           ┌─────────┴──────────┐
-           ▼                    ▼
-    Phase 10               Phase 11
-    (Staging Docker)       (Kubernetes & Helm)
-                                  │
-                                  ▼
-                           Phase 12
-                           (Monitoring & Observability)
+              Phase 10 (CI/CD — GitHub Actions)
+                     │
+                     ▼
+              Phase 11 (Kubernetes & Helm — staging + production)
+                     │
+                     ▼
+              Phase 12 (Monitoring & Observability)
 ```
 
 **Parallelizable**:
 - Phases 2 and 3 (both depend only on Phase 1)
 - Phases 6 and 7 (both depend on Phase 5)
-- Phases 10 and 11 can start together after Phase 9 (staging Docker is simpler and validates before k8s)
+- Phases 10 and 11 can be developed in parallel (CI/CD references Helm chart, Helm chart is deployed by CI/CD)
 
 ---
 
@@ -1099,7 +1278,7 @@ Each phase must pass its quality gate before merging to `main`:
 | 7 | All pass | Pass | >= 85% `api/` | API design review |
 | 8 | — | Pass | — | Dockerfile review |
 | 9 | All E2E pass | Pass | >= 85% overall | Full review |
-| 10 | E2E vs staging | Pass | — | Security + TLS review |
+| 10 | CI passes | Pass | — | Pipeline + secrets review |
 | 11 | Helm tests pass | Pass | — | k8s manifest review |
 | 12 | — | Pass | — | Alerting rules review |
 
@@ -1123,7 +1302,7 @@ Examples:
   feature/phase7-api-server
   feature/phase8-local-docker
   feature/phase9-e2e-polish
-  feature/phase10-staging-docker
+  feature/phase10-cicd-github-actions
   feature/phase11-kubernetes-helm
   feature/phase12-monitoring
 ```

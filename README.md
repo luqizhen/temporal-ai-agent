@@ -179,6 +179,7 @@ All configuration is via environment variables (see `.env.example`):
 - [Test Plan (TDD)](docs/test-plan.md)
 - [Implementation Plan (Phases 0-12)](docs/implementation-plan.md)
 - [Deployment Guide](docs/deployment.md)
+- [CI/CD Pipeline (GitHub Actions)](docs/cicd.md)
 
 ## License
 
