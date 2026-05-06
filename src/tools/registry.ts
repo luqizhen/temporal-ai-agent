@@ -63,3 +63,5 @@ export class ToolRegistry {
 }
 
 export type { ToolDefinition };
+
+export const toolRegistry = new ToolRegistry();
