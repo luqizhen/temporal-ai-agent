@@ -1,5 +1,18 @@
 import type { Tool } from "./tool.interface.js";
-import type { ToolDefinition } from "../shared/types.js";
+import type { ToolDefinition, JSONSchemaProperty } from "../shared/types.js";
+
+export interface OpenAIToolDefinition {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: {
+      type: "object";
+      properties: Record<string, JSONSchemaProperty>;
+      required?: string[];
+    };
+  };
+}
 
 export class ToolRegistry {
   private tools = new Map<string, Tool>();
@@ -26,11 +39,27 @@ export class ToolRegistry {
     return Array.from(this.tools.values());
   }
 
-  getOpenAIToolDefinitions(): ToolDefinition[] {
+  getOpenAIToolDefinitions(): OpenAIToolDefinition[] {
     return this.list().map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters,
+      type: "function" as const,
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+      },
     }));
   }
+
+  static toOpenAIFormat(tool: Tool): OpenAIToolDefinition {
+    return {
+      type: "function",
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+      },
+    };
+  }
 }
+
+export type { ToolDefinition };
