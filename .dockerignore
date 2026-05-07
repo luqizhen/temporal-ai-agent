@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+.git/
+.github/
+docs/
+tests/
+scripts/
+*.md
+.vscode/
+.idea/
+workspace/
