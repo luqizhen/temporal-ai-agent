@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
-const NATIVE_AVAILABLE = await import("@temporalio/testing")
-  .then(() => true)
-  .catch(() => false);
+const NATIVE_AVAILABLE = await import("@temporalio/testing").then(() => true).catch(() => false);
 
 describe.skipIf(!NATIVE_AVAILABLE)("Agent Workflow Integration", () => {
   let env: any;
@@ -13,10 +11,8 @@ describe.skipIf(!NATIVE_AVAILABLE)("Agent Workflow Integration", () => {
     const { Worker } = await import("@temporalio/worker");
     env = await TestWorkflowEnvironment.createLocal();
 
-    const workflowsPath = new URL(
-      "../../src/workflows/agent.workflow.ts",
-      import.meta.url,
-    ).pathname;
+    const workflowsPath = new URL("../../src/workflows/agent.workflow.ts", import.meta.url)
+      .pathname;
 
     worker = await Worker.create({
       connection: env.nativeConnection,

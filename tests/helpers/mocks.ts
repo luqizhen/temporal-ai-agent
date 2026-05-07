@@ -2,9 +2,7 @@ import type { AgentMessage, ToolCall, ToolResult, LLMResponse } from "../../src/
 import type { Tool } from "../../src/tools/tool.interface.js";
 import type { LLMProvider } from "../../src/llm/provider.interface.js";
 
-export function createMockLLMProvider(
-  overrides?: Partial<LLMProvider>,
-): LLMProvider {
+export function createMockLLMProvider(overrides?: Partial<LLMProvider>): LLMProvider {
   return {
     chat: vi.fn().mockResolvedValue({
       content: "mock response",
@@ -46,9 +44,7 @@ export const SAMPLE_TOOL_CALL: ToolCall = {
 export const SAMPLE_TOOL_RESULT: ToolResult = {
   toolCallId: "call_abc123",
   success: true,
-  output: JSON.stringify([
-    { title: "Test", url: "https://example.com", snippet: "..." },
-  ]),
+  output: JSON.stringify([{ title: "Test", url: "https://example.com", snippet: "..." }]),
 };
 
 export const SAMPLE_LLM_RESPONSE: LLMResponse = {

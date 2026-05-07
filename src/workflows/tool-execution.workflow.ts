@@ -19,9 +19,7 @@ const { executeTool } = proxyActivities<typeof activities>({
 });
 
 export const approvalSignal = defineSignal<[ApprovalResponse]>("approvalSignal");
-const approvalStatusQuery = defineQuery<{ status: string; toolName: string }>(
-  "approvalStatus",
-);
+const approvalStatusQuery = defineQuery<{ status: string; toolName: string }>("approvalStatus");
 
 export async function toolExecutionWorkflow(input: {
   toolCall: { id: string; name: string; arguments: Record<string, unknown> };
@@ -35,9 +33,7 @@ export async function toolExecutionWorkflow(input: {
     state.decision = response;
   });
 
-  setHandler(approvalStatusQuery, () =>
-    getApprovalStatus(state.decision, input.toolCall.name),
-  );
+  setHandler(approvalStatusQuery, () => getApprovalStatus(state.decision, input.toolCall.name));
 
   const approved = await condition(
     () => state.decision !== null,

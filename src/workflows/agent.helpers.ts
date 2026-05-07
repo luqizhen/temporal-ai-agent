@@ -1,17 +1,7 @@
-import type {
-  AgentMessage,
-  AgentRunResult,
-  WorkflowState,
-} from "../shared/types.js";
-import {
-  DEFAULT_SYSTEM_PROMPT,
-  MAX_STATE_MESSAGES,
-} from "../shared/constants.js";
+import type { AgentMessage, AgentRunResult, WorkflowState } from "../shared/types.js";
+import { DEFAULT_SYSTEM_PROMPT, MAX_STATE_MESSAGES } from "../shared/constants.js";
 
-export function initializeMessages(
-  prompt: string,
-  systemPrompt?: string,
-): AgentMessage[] {
+export function initializeMessages(prompt: string, systemPrompt?: string): AgentMessage[] {
   const messages: AgentMessage[] = [];
   if (systemPrompt) {
     messages.push({ role: "system", content: systemPrompt });
@@ -67,8 +57,7 @@ export function buildMaxIterResult(
   approvalsRequested: number,
 ): AgentRunResult {
   return {
-    finalAnswer:
-      messages[messages.length - 1]?.content || "Max iterations reached",
+    finalAnswer: messages[messages.length - 1]?.content || "Max iterations reached",
     iterations: iteration,
     toolCallsExecuted,
     approvalsRequested,
@@ -98,10 +87,7 @@ export function buildToolMessage(
   };
 }
 
-export function buildToolErrorMessage(
-  error: unknown,
-  toolCallId: string,
-): AgentMessage {
+export function buildToolErrorMessage(error: unknown, toolCallId: string): AgentMessage {
   return {
     role: "tool",
     content: `Error: ${error instanceof Error ? error.message : String(error)}`,

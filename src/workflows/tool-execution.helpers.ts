@@ -5,12 +5,7 @@ export function getApprovalStatus(
   toolName: string,
 ): { status: string; toolName: string } {
   return {
-    status:
-      decision === null
-        ? "pending"
-        : decision.approved
-          ? "approved"
-          : "rejected",
+    status: decision === null ? "pending" : decision.approved ? "approved" : "rejected",
     toolName,
   };
 }

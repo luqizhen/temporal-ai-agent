@@ -27,8 +27,7 @@ function isValidUrl(urlString: string): boolean {
 
 export const httpRequestTool: Tool = {
   name: "http-request",
-  description:
-    "Makes HTTP requests to external APIs. Supports GET, POST, PUT, DELETE methods.",
+  description: "Makes HTTP requests to external APIs. Supports GET, POST, PUT, DELETE methods.",
   parameters: {
     type: "object",
     properties: {
@@ -95,8 +94,7 @@ export const httpRequestTool: Tool = {
         };
       }
 
-      const isIPAddress =
-        /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname);
+      const isIPAddress = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname);
       if (isIPAddress) {
         if (isPrivateIP(hostname)) {
           return {

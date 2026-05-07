@@ -1,15 +1,6 @@
-import {
-  proxyActivities,
-  defineQuery,
-  setHandler,
-} from "@temporalio/workflow";
+import { proxyActivities, defineQuery, setHandler } from "@temporalio/workflow";
 import type * as activities from "../activities/index.js";
-import type {
-  AgentRunInput,
-  AgentRunResult,
-  AgentMessage,
-  WorkflowState,
-} from "../shared/types.js";
+import type { AgentRunInput, AgentRunResult, WorkflowState } from "../shared/types.js";
 import { DEFAULT_MAX_ITERATIONS } from "../shared/constants.js";
 import {
   initializeMessages,
@@ -35,10 +26,12 @@ export async function agentWorkflow(input: AgentRunInput): Promise<AgentRunResul
 
   let iteration = 0;
   let toolCallsExecuted = 0;
-  let approvalsRequested = 0;
+  const approvalsRequested = 0;
 
-  setHandler(stateQuery, (): WorkflowState =>
-    buildState(messages, iteration, maxIter, toolCallsExecuted, approvalsRequested),
+  setHandler(
+    stateQuery,
+    (): WorkflowState =>
+      buildState(messages, iteration, maxIter, toolCallsExecuted, approvalsRequested),
   );
 
   while (iteration < maxIter) {

@@ -153,9 +153,7 @@ describe("buildAssistantMessage", () => {
   });
 
   it("builds assistant message with tool calls", () => {
-    const toolCalls = [
-      { id: "call_1", name: "search", arguments: { query: "test" } },
-    ];
+    const toolCalls = [{ id: "call_1", name: "search", arguments: { query: "test" } }];
     const msg = buildAssistantMessage("Searching...", toolCalls);
     expect(msg.role).toBe("assistant");
     expect(msg.content).toBe("Searching...");
@@ -170,10 +168,7 @@ describe("buildAssistantMessage", () => {
 
 describe("buildToolMessage", () => {
   it("builds tool message for successful result", () => {
-    const msg = buildToolMessage(
-      { success: true, output: "result data" },
-      "call_1",
-    );
+    const msg = buildToolMessage({ success: true, output: "result data" }, "call_1");
     expect(msg).toEqual({
       role: "tool",
       content: "result data",
@@ -182,10 +177,7 @@ describe("buildToolMessage", () => {
   });
 
   it("builds tool message for failed result", () => {
-    const msg = buildToolMessage(
-      { success: false, output: "", error: "Tool failed" },
-      "call_1",
-    );
+    const msg = buildToolMessage({ success: false, output: "", error: "Tool failed" }, "call_1");
     expect(msg).toEqual({
       role: "tool",
       content: "Error: Tool failed",
@@ -234,12 +226,7 @@ describe("WF-AGENT: Agent workflow logic simulation", () => {
       messages.push(buildAssistantMessage(llmResponse.content, llmResponse.toolCalls));
 
       if (llmResponse.toolCalls.length === 0) {
-        return buildCompletedResult(
-          llmResponse.content || "",
-          iteration,
-          toolCallsExecuted,
-          0,
-        );
+        return buildCompletedResult(llmResponse.content || "", iteration, toolCallsExecuted, 0);
       }
 
       for (const toolCall of llmResponse.toolCalls) {

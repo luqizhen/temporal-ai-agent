@@ -2,12 +2,7 @@ import vm from "node:vm";
 import type { Tool } from "../tool.interface.js";
 import type { ToolResult } from "../../shared/types.js";
 
-const BLOCKED_PATTERNS = [
-  /\brequire\s*\(/,
-  /\bimport\s+/,
-  /\bprocess\s*\.\s*exit/,
-  /\beval\s*\(/,
-];
+const BLOCKED_PATTERNS = [/\brequire\s*\(/, /\bimport\s+/, /\bprocess\s*\.\s*exit/, /\beval\s*\(/];
 
 export const codeExecutionTool: Tool = {
   name: "code-execution",
@@ -67,11 +62,7 @@ export const codeExecutionTool: Tool = {
       console: {
         log: (...args: unknown[]) => {
           logs.push(
-            args
-              .map((a) =>
-                typeof a === "object" ? JSON.stringify(a) : String(a),
-              )
-              .join(" "),
+            args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" "),
           );
         },
       },

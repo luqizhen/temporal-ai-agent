@@ -64,9 +64,9 @@ describe("ToolRegistry", () => {
   it("REG-005: should reject duplicate tool name registration", () => {
     const registry = new ToolRegistry();
     registry.register(createMockTool({ name: "duplicate" }));
-    expect(() =>
-      registry.register(createMockTool({ name: "duplicate" })),
-    ).toThrow("Tool already registered: duplicate");
+    expect(() => registry.register(createMockTool({ name: "duplicate" }))).toThrow(
+      "Tool already registered: duplicate",
+    );
   });
 
   it("REG-006: should reject tool without name (empty string)", () => {
@@ -77,8 +77,6 @@ describe("ToolRegistry", () => {
 
   it("REG-007: should throw when getting non-existent tool", () => {
     const registry = new ToolRegistry();
-    expect(() => registry.get("nonexistent")).toThrow(
-      "Tool not found: nonexistent",
-    );
+    expect(() => registry.get("nonexistent")).toThrow("Tool not found: nonexistent");
   });
 });

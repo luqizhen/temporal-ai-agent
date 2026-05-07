@@ -1,10 +1,5 @@
 import OpenAI from "openai";
-import type {
-  AgentMessage,
-  LLMResponse,
-  ToolCall,
-  ToolDefinition,
-} from "../shared/types.js";
+import type { AgentMessage, LLMResponse, ToolCall, ToolDefinition } from "../shared/types.js";
 import type { LLMProvider } from "./provider.interface.js";
 
 export class OpenAICompatibleProvider implements LLMProvider {
@@ -50,10 +45,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     return this._temperature;
   }
 
-  async chat(
-    messages: AgentMessage[],
-    tools?: ToolDefinition[],
-  ): Promise<LLMResponse> {
+  async chat(messages: AgentMessage[], tools?: ToolDefinition[]): Promise<LLMResponse> {
     const openaiMessages = this.toOpenAIMessages(messages);
     const params: OpenAI.Chat.Completions.ChatCompletionCreateParams = {
       model: this._model,

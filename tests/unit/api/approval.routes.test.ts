@@ -19,9 +19,7 @@ vi.mock("@temporalio/client", () => ({
 }));
 
 async function buildApp() {
-  const { approvalRoutes } = await import(
-    "../../../src/api/routes/approval.routes.js"
-  );
+  const { approvalRoutes } = await import("../../../src/api/routes/approval.routes.js");
   const app = Fastify();
   await app.register(approvalRoutes);
   return app;

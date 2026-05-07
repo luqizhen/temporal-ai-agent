@@ -8,7 +8,6 @@ import {
   WorkflowState,
   ApprovalRequest,
   ApprovalResponse,
-  ApprovalStatus,
   LLMResponse,
   ToolDefinition,
 } from "../../src/shared/types.js";

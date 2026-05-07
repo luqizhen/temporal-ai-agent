@@ -38,9 +38,7 @@ vi.mock("@temporalio/client", () => ({
 }));
 
 async function buildApp() {
-  const { agentRoutes } = await import(
-    "../../../src/api/routes/agent.routes.js"
-  );
+  const { agentRoutes } = await import("../../../src/api/routes/agent.routes.js");
   const app = Fastify();
   await app.register(agentRoutes);
   return app;

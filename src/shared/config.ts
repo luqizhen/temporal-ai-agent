@@ -18,7 +18,10 @@ const agentSchema = z.object({
   maxIterations: z.coerce.number().int().min(1).max(100).default(DEFAULT_MAX_ITERATIONS),
   approvalTimeoutHours: z.coerce.number().int().min(1).default(DEFAULT_APPROVAL_TIMEOUT_HOURS),
   maxStateMessages: z.coerce.number().int().min(5).max(200).default(MAX_STATE_MESSAGES),
-  workspaceDir: z.string().transform((v) => path.resolve(v)).default("./workspace"),
+  workspaceDir: z
+    .string()
+    .transform((v) => path.resolve(v))
+    .default("./workspace"),
 });
 
 const apiSchema = z.object({

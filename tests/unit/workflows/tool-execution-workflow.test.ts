@@ -94,8 +94,6 @@ describe("WF-TOOL: Tool execution workflow logic simulation", () => {
     decision: ApprovalResponse | null,
     timedOut: boolean,
   ) {
-    const status = getApprovalStatus(decision, input.toolCall.name);
-
     if (timedOut || !decision?.approved) {
       return buildRejectionResult(input.toolCall.id, decision);
     }
@@ -125,7 +123,11 @@ describe("WF-TOOL: Tool execution workflow logic simulation", () => {
   it("WF-TOOL-001: approval with modified arguments uses those args", () => {
     const result = simulateToolExecution(
       {
-        toolCall: { id: "call_1", name: "file-write", arguments: { path: "/etc/hosts", content: "test" } },
+        toolCall: {
+          id: "call_1",
+          name: "file-write",
+          arguments: { path: "/etc/hosts", content: "test" },
+        },
         riskLevel: "high",
       },
       { approved: true, modifiedArguments: { path: "/tmp/safe.txt", content: "test" } },

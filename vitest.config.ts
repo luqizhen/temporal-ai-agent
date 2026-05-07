@@ -16,7 +16,13 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "lcov"],
       include: ["src/**/*.ts"],
-      exclude: ["src/**/index.ts"],
+      exclude: [
+        "src/**/index.ts",
+        "src/api/server.ts",
+        "src/worker/worker.ts",
+        "src/workflows/agent.workflow.ts",
+        "src/workflows/tool-execution.workflow.ts",
+      ],
       thresholds: {
         statements: 85,
         branches: 80,

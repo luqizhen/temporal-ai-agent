@@ -12,9 +12,7 @@ describe("http-request tool", () => {
   });
 
   it("HREQ-001: GET request returns response body", async () => {
-    nock("https://api.example.com")
-      .get("/data")
-      .reply(200, { message: "hello" });
+    nock("https://api.example.com").get("/data").reply(200, { message: "hello" });
 
     const result = await httpRequestTool.execute({
       url: "https://api.example.com/data",
@@ -24,10 +22,7 @@ describe("http-request tool", () => {
   });
 
   it("HREQ-003: request timeout returns error", async () => {
-    nock("https://slow.example.com")
-      .get("/slow")
-      .delayConnection(5000)
-      .reply(200, {});
+    nock("https://slow.example.com").get("/slow").delayConnection(5000).reply(200, {});
 
     const result = await httpRequestTool.execute({
       url: "https://slow.example.com/slow",
@@ -85,9 +80,7 @@ describe("http-request tool", () => {
   });
 
   it("should make POST request with body", async () => {
-    nock("https://api.example.com")
-      .post("/data", { name: "test" })
-      .reply(201, { id: 1 });
+    nock("https://api.example.com").post("/data", { name: "test" }).reply(201, { id: 1 });
 
     const result = await httpRequestTool.execute({
       url: "https://api.example.com/data",

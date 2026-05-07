@@ -3,8 +3,7 @@ import type { ToolResult } from "../../shared/types.js";
 
 export const webSearchTool: Tool = {
   name: "web-search",
-  description:
-    "Searches the web for information. Returns results with titles, URLs, and snippets.",
+  description: "Searches the web for information. Returns results with titles, URLs, and snippets.",
   parameters: {
     type: "object",
     properties: {
@@ -47,8 +46,7 @@ export const webSearchTool: Tool = {
             {
               title: `Simulated result for: ${query}`,
               url: "https://example.com/simulated",
-              snippet:
-                "This is a simulated search result for development purposes.",
+              snippet: "This is a simulated search result for development purposes.",
             },
           ],
           simulated: true,
@@ -57,8 +55,7 @@ export const webSearchTool: Tool = {
     }
 
     const apiUrl =
-      process.env.WEB_SEARCH_API_URL ||
-      "https://api.search.brave.com/res/v1/web/search";
+      process.env.WEB_SEARCH_API_URL || "https://api.search.brave.com/res/v1/web/search";
 
     try {
       const controller = new AbortController();
@@ -106,10 +103,7 @@ export const webSearchTool: Tool = {
       };
     } catch (error: unknown) {
       const err = error as Error;
-      if (
-        err.name === "AbortError" ||
-        err.message?.toLowerCase().includes("abort")
-      ) {
+      if (err.name === "AbortError" || err.message?.toLowerCase().includes("abort")) {
         return {
           toolCallId: "",
           success: false,

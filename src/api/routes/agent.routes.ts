@@ -49,7 +49,7 @@ export async function agentRoutes(app: FastifyInstance) {
     const handle = client.workflow.getHandle(workflowId);
 
     try {
-      const result = await handle.result() as AgentRunResult;
+      const result = (await handle.result()) as AgentRunResult;
       return { workflowId, status: "completed", result };
     } catch {
       return reply.code(409).send({ error: "Workflow still running", workflowId });

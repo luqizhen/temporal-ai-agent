@@ -31,9 +31,7 @@ describe("OpenAICompatibleProvider", () => {
   describe("LLM-001: chat() returns text response (no tools)", () => {
     it("should return text content when no tool calls", async () => {
       const provider = createProvider();
-      const messages: AgentMessage[] = [
-        { role: "user", content: "Hello" },
-      ];
+      const messages: AgentMessage[] = [{ role: "user", content: "Hello" }];
 
       nock(BASE_URL)
         .post("/chat/completions")
@@ -68,9 +66,7 @@ describe("OpenAICompatibleProvider", () => {
   describe("LLM-002: chat() returns tool calls", () => {
     it("should parse tool_calls from response", async () => {
       const provider = createProvider();
-      const messages: AgentMessage[] = [
-        { role: "user", content: "What's the weather?" },
-      ];
+      const messages: AgentMessage[] = [{ role: "user", content: "What's the weather?" }];
       const tools: ToolDefinition[] = [
         {
           name: "get_weather",

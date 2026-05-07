@@ -33,8 +33,6 @@ vi.mock("../../../src/tools/registry.js", () => ({
   },
 }));
 
-import { toolRegistry } from "../../../src/tools/registry.js";
-
 const SAMPLE_LLM_RESPONSE: LLMResponse = {
   content: "Hello! How can I help?",
   toolCalls: [],
@@ -90,9 +88,7 @@ describe("callLLM activity", () => {
   it("should return tool calls in response", async () => {
     const toolResponse: LLMResponse = {
       content: null,
-      toolCalls: [
-        { id: "call_1", name: "search", arguments: { query: "test" } },
-      ],
+      toolCalls: [{ id: "call_1", name: "search", arguments: { query: "test" } }],
       usage: { promptTokens: 50, completionTokens: 30 },
       finishReason: "tool_calls",
     };

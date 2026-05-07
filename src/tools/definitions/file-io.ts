@@ -15,8 +15,7 @@ function validatePath(workspaceDir: string, filePath: string): string {
 export function createFileReadTool(workspaceDir: string): Tool {
   return {
     name: "file-read",
-    description:
-      "Reads the content of a file within the workspace directory.",
+    description: "Reads the content of a file within the workspace directory.",
     parameters: {
       type: "object",
       properties: {

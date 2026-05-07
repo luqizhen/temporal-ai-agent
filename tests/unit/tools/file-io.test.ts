@@ -2,18 +2,13 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import {
-  createFileReadTool,
-  createFileWriteTool,
-} from "../../../src/tools/definitions/file-io.js";
+import { createFileReadTool, createFileWriteTool } from "../../../src/tools/definitions/file-io.js";
 
 describe("file-io tools", () => {
   let workspaceDir: string;
 
   beforeEach(async () => {
-    workspaceDir = await fs.promises.mkdtemp(
-      path.join(os.tmpdir(), "test-workspace-"),
-    );
+    workspaceDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "test-workspace-"));
   });
 
   afterEach(async () => {
@@ -22,10 +17,7 @@ describe("file-io tools", () => {
 
   describe("file-read", () => {
     it("FIO-001: read existing file returns content", async () => {
-      await fs.promises.writeFile(
-        path.join(workspaceDir, "test.txt"),
-        "hello world",
-      );
+      await fs.promises.writeFile(path.join(workspaceDir, "test.txt"), "hello world");
       const tool = createFileReadTool(workspaceDir);
       const result = await tool.execute({ path: "test.txt" });
       expect(result.success).toBe(true);
@@ -60,10 +52,7 @@ describe("file-io tools", () => {
         content: "new content",
       });
       expect(result.success).toBe(true);
-      const content = await fs.promises.readFile(
-        path.join(workspaceDir, "new-file.txt"),
-        "utf-8",
-      );
+      const content = await fs.promises.readFile(path.join(workspaceDir, "new-file.txt"), "utf-8");
       expect(content).toBe("new content");
     });
 
