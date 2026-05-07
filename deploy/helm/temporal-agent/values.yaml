@@ -110,3 +110,12 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
+
+monitoring:
+  prometheus:
+    enabled: false
+    release: prometheus
+    scrapeInterval: "30s"
+  grafana:
+    dashboards:
+      enabled: true

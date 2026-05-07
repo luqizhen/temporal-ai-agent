@@ -1,0 +1,110 @@
+groups:
+  - name: temporal-agent.rules
+    interval: 30s
+    rules:
+      - alert: AgentHighFailureRate
+        expr: >
+          (
+            sum(rate(agent_workflows_completed_total{status=~"max_iterations|error"}[5m]))
+            / sum(rate(agent_workflows_completed_total[5m]))
+          ) > 0.10
+        for: 5m
+        labels:
+          severity: warning
+          component: agent
+        annotations:
+          summary: "High agent workflow failure rate"
+          description: >
+            More than 10% of workflows are failing (status: max_iterations or error).
+            Current rate: {{ $value | humanizePercentage }}.
+            Check LLM provider health and workflow logs.
+          runbook: "docs/runbooks/high-failure-rate.md"
+
+      - alert: AgentCriticalFailureRate
+        expr: >
+          (
+            sum(rate(agent_workflows_completed_total{status=~"max_iterations|error"}[5m]))
+            / sum(rate(agent_workflows_completed_total[5m]))
+          ) > 0.25
+        for: 5m
+        labels:
+          severity: critical
+          component: agent
+        annotations:
+          summary: "Critical agent workflow failure rate"
+          description: >
+            More than 25% of workflows are failing.
+            Current rate: {{ $value | humanizePercentage }}.
+            Investigate immediately.
+          runbook: "docs/runbooks/high-failure-rate.md"
+
+      - alert: AgentStuckWorkflows
+        expr: >
+          sum(agent_workflows_started_total - agent_workflows_completed_total) > 50
+        for: 30m
+        labels:
+          severity: warning
+          component: agent
+        annotations:
+          summary: "Many workflows running for extended time"
+          description: >
+            {{ $value }} workflows have been running for over 30 minutes.
+            Check for stuck approvals or unresponsive tools.
+          runbook: "docs/runbooks/stuck-workflows.md"
+
+      - alert: LLMProviderDown
+        expr: >
+          sum(increase(agent_llm_errors_total[5m])) > 5
+        for: 1m
+        labels:
+          severity: critical
+          component: llm
+        annotations:
+          summary: "LLM provider errors detected"
+          description: >
+            {{ $value }} LLM errors in the last 5 minutes.
+            Check API key validity and provider status.
+          runbook: "docs/runbooks/llm-provider-down.md"
+
+      - alert: WorkerTaskQueueBacklog
+        expr: >
+          temporal_task_queue_backlog > 1000
+        for: 5m
+        labels:
+          severity: warning
+          component: worker
+        annotations:
+          summary: "Worker task queue backlog is high"
+          description: >
+            Task queue backlog is {{ $value }}.
+            Consider scaling up worker replicas.
+          runbook: "docs/runbooks/worker-backlog.md"
+
+      - alert: HighMemoryUsage
+        expr: >
+          container_memory_working_set_bytes / container_spec_memory_limit_bytes > 0.80
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "Container memory usage exceeds 80%"
+          description: >
+            Memory usage is at {{ $value | humanizePercentage }}.
+            Consider scaling or investigating memory leaks.
+          runbook: "docs/runbooks/high-memory.md"
+
+      - alert: APIHighLatency
+        expr: >
+          histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))
+          > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "API p99 latency exceeds 5 seconds"
+          description: >
+            API p99 latency is {{ $value }}s.
+            Check downstream services and worker health.
+          runbook: "docs/runbooks/api-high-latency.md"

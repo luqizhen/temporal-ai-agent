@@ -1,0 +1,20 @@
+{{- if .Values.monitoring.prometheus.enabled -}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "temporal-agent.fullname" . }}-api
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "temporal-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+    release: {{ .Values.monitoring.prometheus.release | quote }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "temporal-agent.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.monitoring.prometheus.scrapeInterval | default "30s" }}
+{{- end }}
