@@ -1,0 +1,60 @@
+global:
+  namespace: temporal-agent-staging
+  environment: staging
+
+api:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/your-org/temporal-ai-agent
+    tag: staging-latest
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: staging.agent.example.com
+        paths:
+          - path: /
+    tls:
+      - secretName: agent-staging-tls
+        hosts:
+          - staging.agent.example.com
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  hpa:
+    enabled: false
+
+worker:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/your-org/temporal-ai-agent
+    tag: staging-latest
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  hpa:
+    enabled: false
+
+config:
+  nodeEnv: staging
+  agentMaxIterations: 20
+  approvalTimeoutHours: 1
+
+temporal:
+  enabled: true
+  server:
+    replicaCount: 1
+
+postgresql:
+  enabled: true
+  primary:
+    persistence:
+      size: 10Gi

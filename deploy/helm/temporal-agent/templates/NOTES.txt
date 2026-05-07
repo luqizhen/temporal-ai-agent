@@ -1,0 +1,18 @@
+Welcome to Temporal Agent!
+
+The AI agent orchestration platform has been deployed.
+
+API endpoint: http://{{ include "temporal-agent.fullname" . }}-api.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.config.port }}
+
+Get the API URL:
+  export API_URL=http://$(kubectl get svc {{ include "temporal-agent.fullname" . }}-api -n {{ .Values.global.namespace }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):{{ .Values.config.port }}
+
+  Or via port-forward:
+  kubectl port-forward svc/{{ include "temporal-agent.fullname" . }}-api {{ .Values.config.port }}:{{ .Values.config.port }} -n {{ .Values.global.namespace }}
+
+Health check:
+  curl $API_URL/health
+
+View logs:
+  kubectl logs -f -l app.kubernetes.io/component=api -n {{ .Values.global.namespace }}
+  kubectl logs -f -l app.kubernetes.io/component=worker -n {{ .Values.global.namespace }}

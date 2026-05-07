@@ -1,0 +1,112 @@
+global:
+  namespace: temporal-agent
+  environment: production
+
+api:
+  replicaCount: 3
+  image:
+    repository: ghcr.io/your-org/temporal-ai-agent
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 3000
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts: []
+    tls: []
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  hpa:
+    enabled: false
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilization: 70
+    targetMemoryUtilization: 80
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 3000
+    initialDelaySeconds: 15
+    periodSeconds: 30
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 3000
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+worker:
+  replicaCount: 3
+  image:
+    repository: ghcr.io/your-org/temporal-ai-agent
+    tag: latest
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  hpa:
+    enabled: false
+    minReplicas: 3
+    maxReplicas: 20
+
+config:
+  nodeEnv: production
+  port: 3000
+  temporalAddress: "temporal-agent-temporal:7233"
+  temporalNamespace: "default"
+  agentMaxIterations: 25
+  approvalTimeoutHours: 2
+  workspaceDir: "/app/workspace"
+
+secrets:
+  llmApiKey: ""
+  temporalClientCert: ""
+  temporalClientKey: ""
+
+temporal:
+  enabled: true
+  server:
+    replicaCount: 1
+
+postgresql:
+  enabled: true
+  auth:
+    username: temporal
+    database: temporal
+  primary:
+    persistence:
+      size: 10Gi
+
+serviceAccount:
+  create: true
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  capabilities:
+    drop:
+      - ALL
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

@@ -1,0 +1,23 @@
+apiVersion: v2
+name: temporal-agent
+description: A durable, production-grade AI agent built on Temporal orchestration
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/your-org/temporal-ai-agent
+sources:
+  - https://github.com/your-org/temporal-ai-agent
+maintainers:
+  - name: luigi
+    email: luqizhen1027@163.com
+
+dependencies:
+  - name: temporal
+    version: "0.42.0"
+    repository: https://charts.temporal.io
+    condition: temporal.enabled
+  - name: postgresql
+    version: "16.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+    alias: postgresql
