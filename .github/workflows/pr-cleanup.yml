@@ -1,0 +1,12 @@
+name: PR Cleanup
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    if: false
+    steps:
+      - run: echo "Cleanup PR #${{ github.event.number }} preview resources"

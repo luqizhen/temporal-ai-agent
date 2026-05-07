@@ -1,0 +1,117 @@
+name: Deploy Staging
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+      - run: npm run test
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=
+            type=raw,value=staging-latest
+
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            COMMIT_SHA=${{ github.sha }}
+
+  deploy-staging:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: "v3.14.0"
+      - uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBECONFIG_STAGING }}
+
+      - name: Helm Deploy
+        run: |
+          helm repo add temporal https://charts.temporal.io
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo update
+          helm dependency update deploy/helm/temporal-agent
+
+          helm upgrade temporal-agent ./deploy/helm/temporal-agent \
+            --install \
+            --namespace temporal-agent-staging \
+            --create-namespace \
+            -f deploy/helm/temporal-agent/values-staging.yaml \
+            --set api.image.tag=${{ needs.build-and-push.outputs.image_tag }} \
+            --set worker.image.tag=${{ needs.build-and-push.outputs.image_tag }} \
+            --set secrets.llmApiKey=${{ secrets.LLM_API_KEY_STAGING }} \
+            --history-max 10 \
+            --wait \
+            --timeout 5m
+
+      - name: Smoke Test
+        run: |
+          kubectl rollout status deployment/temporal-agent-api \
+            -n temporal-agent-staging --timeout=120s
+
+          kubectl port-forward svc/temporal-agent-api 3000:3000 \
+            -n temporal-agent-staging &
+          PF_PID=$!
+          sleep 10
+
+          STATUS=$(curl -sf http://localhost:3000/health | jq -r '.status')
+          kill $PF_PID 2>/dev/null || true
+
+          if [ "$STATUS" != "ok" ]; then
+            echo "Smoke test failed: health status = $STATUS"
+            exit 1
+          fi
+          echo "Staging smoke test passed"

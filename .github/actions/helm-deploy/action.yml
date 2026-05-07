@@ -1,0 +1,53 @@
+name: "Helm Deploy"
+description: "Deploy Helm chart to Kubernetes"
+inputs:
+  release-name:
+    description: "Helm release name"
+    required: true
+  namespace:
+    description: "Kubernetes namespace"
+    required: true
+  values-file:
+    description: "Path to values file"
+    required: true
+  image-tag:
+    description: "Container image tag"
+    required: true
+  kubeconfig:
+    description: "Base64-encoded kubeconfig"
+    required: true
+  llm-api-key:
+    description: "LLM API key"
+    required: true
+  timeout:
+    description: "Helm install timeout"
+    required: false
+    default: "5m"
+
+runs:
+  using: "composite"
+  steps:
+    - uses: azure/setup-helm@v4
+      with:
+        version: "v3.14.0"
+    - uses: azure/k8s-set-context@v4
+      with:
+        method: kubeconfig
+        kubeconfig: ${{ inputs.kubeconfig }}
+    - shell: bash
+      run: |
+        helm repo add temporal https://charts.temporal.io
+        helm repo add bitnami https://charts.bitnami.com/bitnami
+        helm repo update
+        helm dependency update deploy/helm/temporal-agent
+
+        helm upgrade ${{ inputs.release-name }} ./deploy/helm/temporal-agent \
+          --install \
+          --namespace ${{ inputs.namespace }} \
+          --create-namespace \
+          -f ${{ inputs.values-file }} \
+          --set api.image.tag=${{ inputs.image-tag }} \
+          --set worker.image.tag=${{ inputs.image-tag }} \
+          --set secrets.llmApiKey=${{ inputs.llm-api-key }} \
+          --wait \
+          --timeout ${{ inputs.timeout }}

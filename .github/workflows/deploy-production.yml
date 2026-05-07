@@ -1,0 +1,135 @@
+name: Deploy Production
+
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+      - run: npm run test
+
+  retag-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Retag image with version
+        run: |
+          SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-7)
+          SOURCE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${SHA_SHORT}"
+          VERSION_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
+          LATEST_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+
+          echo "Retagging ${SHA_SHORT} -> ${{ github.ref_name }}, latest"
+          docker buildx imagetools create \
+            -t "$VERSION_TAG" \
+            -t "$LATEST_TAG" \
+            "$SOURCE"
+
+  publish-helm-chart:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: "v3.14.0"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Package and publish Helm chart
+        run: |
+          VERSION="${{ github.ref_name }}"
+          yq -i ".version = \"${VERSION#v}\"" deploy/helm/temporal-agent/Chart.yaml
+          yq -i ".appVersion = \"${VERSION}\"" deploy/helm/temporal-agent/Chart.yaml
+
+          helm package deploy/helm/temporal-agent \
+            --destination ./dist
+
+          helm push ./dist/temporal-agent-*.tgz \
+            oci://${{ env.REGISTRY }}/${{ github.repository }}/charts
+
+  deploy-production:
+    needs: [retag-and-push, publish-helm-chart]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: "v3.14.0"
+      - uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBECONFIG_PRODUCTION }}
+
+      - name: Helm Deploy
+        run: |
+          helm repo add temporal https://charts.temporal.io
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo update
+          helm dependency update deploy/helm/temporal-agent
+
+          helm upgrade temporal-agent ./deploy/helm/temporal-agent \
+            --install \
+            --namespace temporal-agent \
+            --create-namespace \
+            -f deploy/helm/temporal-agent/values-production.yaml \
+            --set api.image.tag=${{ github.ref_name }} \
+            --set worker.image.tag=${{ github.ref_name }} \
+            --set secrets.llmApiKey=${{ secrets.LLM_API_KEY_PRODUCTION }} \
+            --history-max 20 \
+            --wait \
+            --timeout 10m
+
+      - name: Smoke Test
+        run: |
+          kubectl rollout status deployment/temporal-agent-api \
+            -n temporal-agent --timeout=300s
+
+          kubectl port-forward svc/temporal-agent-api 3000:3000 \
+            -n temporal-agent &
+          PF_PID=$!
+          sleep 15
+
+          STATUS=$(curl -sf http://localhost:3000/health | jq -r '.status')
+          kill $PF_PID 2>/dev/null || true
+
+          if [ "$STATUS" != "ok" ]; then
+            echo "Production smoke test failed: health status = $STATUS"
+            exit 1
+          fi
+          echo "Production smoke test passed"
